@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using SteamKit2;
@@ -12,19 +13,11 @@ namespace SteamIconGetter
         static SteamClient     m_steamClient;
         static CallbackManager m_manager;
         static HttpClient      m_http;
-        static uint            m_appid;
 
         static bool m_isRunning; 
 
         public static void Main( string[] args )
         {
-            if ( args.Length != 1 )
-            {
-                Console.WriteLine( "Please specify an appid to get the icon of." );
-                return;
-            }
-
-            m_appid       = uint.Parse( args[0] );
             m_http        = new HttpClient();
             m_steamClient = new SteamClient();
             m_manager     = new CallbackManager( m_steamClient );
@@ -73,14 +66,44 @@ namespace SteamIconGetter
 
             Console.WriteLine( "Successfully logged on!" );
 
-            Console.WriteLine( $"Looking up clienticon for {m_appid}" );
-            var productInfo = await m_steamApps.PICSGetProductInfo( m_appid, null );
-            var hash = productInfo.Results[ 0 ].Apps[ m_appid ].KeyValues[ "common" ][ "clienticon" ].Value;
+            Directory.CreateDirectory( "icons" );
+            for (uint i = 0; i < 200000; i++)
+            {
+                // appids come in multiples of 10
+                uint appid = i * 10;
+                if ( File.Exists( $"icons/{appid}.ico" ) )
+                {
+                    Console.WriteLine( $"Already have icon for {appid}" );
+                    continue;
+                }
 
-            Console.WriteLine( $"Got hash ${hash}" );
-            var resp = await m_http.GetAsync( $"http://media.steampowered.com/steamcommunity/public/images/apps/{m_appid}/{hash}.ico?original=1" );
-            using ( var fs = new FileStream( $"{m_appid}.ico", FileMode.OpenOrCreate ) )
-                await resp.Content.CopyToAsync( fs );
+                if ( File.Exists( $"icons/{appid}.noicon" ) )
+                {
+                    Console.WriteLine( $"We know {appid} has no appid" );
+                    continue;
+                }
+
+                Console.WriteLine( $"Looking up clienticon for {appid}" );
+                try
+                {
+                    var productInfo = await m_steamApps.PICSGetProductInfo( appid, null );
+                    var hash = productInfo.Results[ 0 ].Apps[ appid ].KeyValues[ "common" ][ "clienticon" ].Value;
+                    if ( string.IsNullOrWhiteSpace( hash ) )
+                    {
+                        File.Create( $"icons/{appid}.noicon" );
+                        continue;
+                    }
+
+                    Console.WriteLine( $"Got hash {hash}" );
+                    var resp = await m_http.GetAsync( $"http://media.steampowered.com/steamcommunity/public/images/apps/{appid}/{hash}.ico?original=1" );
+                    using ( var fs = new FileStream( $"icons/{appid}.ico", FileMode.OpenOrCreate ) )
+                        await resp.Content.CopyToAsync( fs );
+                }
+                catch (Exception e)
+                {
+                    File.Create( $"icons/{appid}.noicon" );
+                }
+            }
 
             m_steamUser.LogOff();
         }
